@@ -1,0 +1,210 @@
+name: iOS Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Build ID from Supabase'
+        required: true
+        type: string
+      xcode_project_url:
+        description: 'URL to download Xcode project ZIP'
+        required: true
+        type: string
+      certificate_url:
+        description: 'URL to certificate (.p12)'
+        required: true
+        type: string
+      profile_url:
+        description: 'URL to provisioning profile'
+        required: true
+        type: string
+      certificate_password:
+        description: 'Certificate password'
+        required: true
+        type: string
+      bundle_id:
+        description: 'App Bundle ID'
+        required: true
+        type: string
+      version_number:
+        description: 'Version number'
+        required: true
+        type: string
+      build_number:
+        description: 'Build number'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Download Xcode project
+        run: |
+          echo "📦 Downloading Xcode project..."
+          curl -L -o project.zip "${{ github.event.inputs.xcode_project_url }}"
+          unzip -q project.zip
+          echo "✅ Project downloaded and extracted"
+      
+      - name: Download certificates
+        run: |
+          echo "🔐 Downloading certificates..."
+          curl -L -o certificate.p12 "${{ github.event.inputs.certificate_url }}"
+          curl -L -o profile.mobileprovision "${{ github.event.inputs.profile_url }}"
+          echo "✅ Certificates downloaded"
+      
+      - name: Setup keychain
+        run: |
+          echo "🔑 Setting up keychain..."
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          echo "✅ Keychain ready"
+      
+      - name: Import certificate
+        run: |
+          echo "📜 Importing certificate..."
+          security import certificate.p12 \
+            -k build.keychain \
+            -P "${{ github.event.inputs.certificate_password }}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s -k actions build.keychain
+          
+          echo "✅ Certificate imported"
+      
+      - name: Install provisioning profile
+        run: |
+          echo "📋 Installing provisioning profile..."
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          echo "✅ Profile installed"
+      
+      - name: Build app
+        run: |
+          echo "🏗️ Building iOS app..."
+          
+          PROJECT_DIR=$(find . -maxdepth 2 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
+          cd "$PROJECT_DIR"
+          
+          if [ -f "Info.plist" ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ github.event.inputs.version_number }}" Info.plist || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.event.inputs.build_number }}" Info.plist || true
+          fi
+          
+          if ls *.xcworkspace 1> /dev/null 2>&1; then
+            WORKSPACE=$(ls *.xcworkspace | head -n 1)
+            SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+            
+            xcodebuild clean archive \
+              -workspace "$WORKSPACE" \
+              -scheme "$SCHEME" \
+              -configuration Release \
+              -archivePath "$PWD/build/App.xcarchive" \
+              CODE_SIGN_IDENTITY="Apple Distribution" \
+              DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}"
+          else
+            PROJECT=$(ls *.xcodeproj | head -n 1)
+            TARGET=$(xcodebuild -list -project "$PROJECT" | grep -A 1 "Targets:" | tail -n 1 | xargs)
+            
+            xcodebuild clean archive \
+              -project "$PROJECT" \
+              -target "$TARGET" \
+              -configuration Release \
+              -archivePath "$PWD/build/App.xcarchive" \
+              CODE_SIGN_IDENTITY="Apple Distribution" \
+              DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}"
+          fi
+          
+          echo "✅ Archive created"
+      
+      - name: Export IPA
+        run: |
+          echo "📦 Exporting IPA..."
+          
+          PROJECT_DIR=$(find . -maxdepth 2 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
+          cd "$PROJECT_DIR"
+          
+          cat > ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>app-store</string>
+            <key>teamID</key>
+            <string>${{ secrets.APPLE_TEAM_ID }}</string>
+            <key>uploadBitcode</key>
+            <false/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+          
+          xcodebuild -exportArchive \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -exportPath "$PWD/build" \
+            -exportOptionsPlist ExportOptions.plist
+          
+          echo "✅ IPA exported"
+      
+      - name: Upload to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "☁️ Uploading IPA to Supabase..."
+          
+          PROJECT_DIR=$(find . -maxdepth 2 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
+          cd "$PROJECT_DIR"
+          
+          IPA_FILE=$(find build -name "*.ipa" -print -quit)
+          IPA_FILENAME=$(basename "$IPA_FILE")
+          
+          curl -X POST \
+            "${SUPABASE_URL}/storage/v1/object/ios-builds/${{ github.event.inputs.build_id }}/${IPA_FILENAME}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${IPA_FILE}"
+          
+          IPA_URL="${SUPABASE_URL}/storage/v1/object/public/ios-builds/${{ github.event.inputs.build_id }}/${IPA_FILENAME}"
+          
+          curl -X PATCH \
+            "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Prefer: return=minimal" \
+            -d "{\"status\":\"completed\",\"ipa_url\":\"${IPA_URL}\",\"completed_at\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+          
+          echo "✅ Build completed successfully!"
+          echo "📱 IPA URL: ${IPA_URL}"
+      
+      - name: Handle failure
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          echo "❌ Build failed"
+          
+          curl -X PATCH \
+            "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -H "Prefer: return=minimal" \
+            -d "{\"status\":\"failed\",\"error_message\":\"Build failed. Check GitHub Actions logs.\",\"completed_at\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"

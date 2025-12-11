@@ -43,7 +43,35 @@ jobs:
       - name: Download Xcode project template
         run: |
           echo "Downloading template from: ${{ inputs.xcode_project_url }}"
-          curl -L -o template.zip "${{ inputs.xcode_project_url }}"
+          
+          # Download with verbose output
+          curl -L -v -o template.zip "${{ inputs.xcode_project_url }}"
+          
+          # Check if file was downloaded
+          if [ ! -f template.zip ]; then
+            echo "❌ template.zip was not created"
+            exit 1
+          fi
+          
+          # Check file size
+          FILE_SIZE=$(ls -lh template.zip | awk '{print $5}')
+          echo "Downloaded file size: $FILE_SIZE"
+          
+          # Check if it's a valid zip (first 4 bytes should be PK)
+          echo "File header (first 20 bytes):"
+          xxd -l 20 template.zip
+          
+          # Try to list contents without extracting
+          echo "Attempting to list zip contents:"
+          unzip -l template.zip || echo "Failed to list contents"
+          
+          # If it's HTML (error page), show first 200 bytes
+          if file template.zip | grep -q "HTML"; then
+            echo "❌ Downloaded file is HTML, not a ZIP!"
+            echo "First 200 bytes:"
+            head -c 200 template.zip
+            exit 1
+          fi
           
           echo "Unzipping template..."
           unzip -q template.zip
@@ -51,7 +79,7 @@ jobs:
           echo "Template contents:"
           ls -la
           
-          # Find FoldaaApp directory (it will be inside foldaa-ios-builds-main/templates/ios-wrapper/)
+          # Find FoldaaApp directory
           FOLDAA_DIR=$(find . -type d -name "FoldaaApp" | head -n 1)
           
           if [ -z "$FOLDAA_DIR" ]; then
@@ -63,7 +91,7 @@ jobs:
           
           echo "✅ Found FoldaaApp at: $FOLDAA_DIR"
           
-          # Move FoldaaApp to root for easier access
+          # Move FoldaaApp to root
           mv "$FOLDAA_DIR" ./FoldaaApp
           
           echo "FoldaaApp moved to root:"
@@ -76,6 +104,12 @@ jobs:
           
           echo "Config downloaded"
           
+          # Check if jq is available
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            brew install jq
+          fi
+          
           # Apply config to project files
           echo "Applying configuration..."
           
@@ -86,6 +120,8 @@ jobs:
           cat config.json | jq -r '.infoPlist' > FoldaaApp/Info.plist
           
           echo "✅ Configuration applied"
+          echo "ViewController.swift size: $(ls -lh FoldaaApp/ViewController.swift | awk '{print $5}')"
+          echo "Info.plist size: $(ls -lh FoldaaApp/Info.plist | awk '{print $5}')"
 
       - name: Download certificates
         run: |
@@ -101,6 +137,7 @@ jobs:
       - name: Setup keychain
         run: |
           # Create temporary keychain
+          echo "Creating keychain..."
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p actions build.keychain
@@ -126,7 +163,9 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
           
+          # Verify installation
           echo "✅ Keychain setup complete"
+          security find-identity -p codesigning -v build.keychain
 
       - name: Build IPA
         run: |
@@ -137,7 +176,15 @@ jobs:
           echo "Version: ${{ inputs.version_number }}"
           echo "Build: ${{ inputs.build_number }}"
           
+          # Check if project file exists
+          if [ ! -f "FoldaaApp.xcodeproj/project.pbxproj" ]; then
+            echo "❌ FoldaaApp.xcodeproj not found"
+            ls -la
+            exit 1
+          fi
+          
           # Build archive
+          echo "Creating archive..."
           xcodebuild clean archive \
             -project FoldaaApp.xcodeproj \
             -scheme FoldaaApp \
@@ -148,6 +195,29 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER="${{ inputs.bundle_id }}" \
             MARKETING_VERSION="${{ inputs.version_number }}" \
             CURRENT_PROJECT_VERSION="${{ inputs.build_number }}"
+          
+          # Check if ExportOptions.plist exists
+          if [ ! -f "ExportOptions.plist" ]; then
+            echo "Creating ExportOptions.plist..."
+            cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>\${{ secrets.APPLE_TEAM_ID }}</string>
+              <key>uploadBitcode</key>
+              <false/>
+              <key>uploadSymbols</key>
+              <true/>
+              <key>signingStyle</key>
+              <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
+          fi
           
           # Export IPA
           echo "Exporting IPA..."
@@ -169,27 +239,58 @@ jobs:
           IPA_NAME="${{ inputs.build_id }}.ipa"
           
           echo "Uploading IPA to Supabase Storage..."
+          echo "IPA path: $IPA_PATH"
+          echo "IPA name: $IPA_NAME"
+          
+          # Check if IPA exists
+          if [ ! -f "$IPA_PATH" ]; then
+            echo "❌ IPA file not found at $IPA_PATH"
+            echo "Available files in build directory:"
+            ls -la FoldaaApp/build/
+            exit 1
+          fi
           
           # Upload to Supabase Storage
-          curl -X POST \
+          UPLOAD_RESPONSE=$(curl -X POST \
             "${SUPABASE_URL}/storage/v1/object/ios-builds/${IPA_NAME}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@${IPA_PATH}"
+            --data-binary "@${IPA_PATH}" \
+            -w "\n%{http_code}")
+          
+          HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+          echo "Upload HTTP code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
+            echo "❌ Upload failed with code $HTTP_CODE"
+            echo "$UPLOAD_RESPONSE"
+            exit 1
+          fi
           
           # Get public URL
           IPA_URL="${SUPABASE_URL}/storage/v1/object/public/ios-builds/${IPA_NAME}"
           echo "IPA uploaded to: ${IPA_URL}"
           
           # Update build record
-          curl -X PATCH \
+          echo "Updating build record..."
+          UPDATE_RESPONSE=$(curl -X PATCH \
             "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ inputs.build_id }}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            -d "{\"status\":\"completed\",\"ipa_url\":\"${IPA_URL}\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"}"
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -d "{\"status\":\"completed\",\"ipa_url\":\"${IPA_URL}\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"}" \
+            -w "\n%{http_code}")
           
-          echo "✅ Build record updated"
+          UPDATE_HTTP_CODE=$(echo "$UPDATE_RESPONSE" | tail -n1)
+          echo "Update HTTP code: $UPDATE_HTTP_CODE"
+          
+          if [ "$UPDATE_HTTP_CODE" != "200" ] && [ "$UPDATE_HTTP_CODE" != "204" ]; then
+            echo "⚠️ Failed to update build record, but IPA was uploaded"
+            echo "$UPDATE_RESPONSE"
+          fi
+          
+          echo "✅ Build completed successfully"
 
       - name: Handle failure
         if: failure()
@@ -197,16 +298,20 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
+          echo "Build failed, updating status..."
           curl -X PATCH \
             "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ inputs.build_id }}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
-            -d "{\"status\":\"failed\",\"error_message\":\"Build failed in GitHub Actions\"}"
+            -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+            -d "{\"status\":\"failed\",\"error_message\":\"Build failed in GitHub Actions\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"}"
 
       - name: Cleanup
         if: always()
         run: |
+          echo "Cleaning up..."
+          
           # Delete keychain
           security delete-keychain build.keychain || true
           

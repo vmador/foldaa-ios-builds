@@ -1,0 +1,165 @@
+name: Build iOS App
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Build ID from Supabase'
+        required: true
+      xcode_project_url:
+        description: 'URL to Xcode project template ZIP'
+        required: true
+      config_url:
+        description: 'URL to project config JSON'
+        required: true
+      certificate_url:
+        description: 'URL to distribution certificate'
+        required: true
+      profile_url:
+        description: 'URL to provisioning profile'
+        required: true
+      certificate_password:
+        description: 'Certificate password'
+        required: true
+      bundle_id:
+        description: 'Bundle identifier'
+        required: true
+      version_number:
+        description: 'Version number'
+        required: true
+      build_number:
+        description: 'Build number'
+        required: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download Xcode project template
+        run: |
+          echo "Downloading template from: ${{ github.event.inputs.xcode_project_url }}"
+          curl -L -o template.zip "${{ github.event.inputs.xcode_project_url }}"
+          unzip template.zip
+          # El ZIP de GitHub viene con el nombre del repo
+          REPO_NAME=$(echo "${{ github.event.inputs.xcode_project_url }}" | sed 's/.*\/\([^\/]*\)\/archive.*/\1/')
+          mv ${REPO_NAME}-main/templates/ios-wrapper/FoldaaApp ./FoldaaApp
+          rm -rf ${REPO_NAME}-main template.zip
+
+      - name: Download project config
+        run: |
+          echo "Downloading config from: ${{ github.event.inputs.config_url }}"
+          curl -L -o config.json "${{ github.event.inputs.config_url }}"
+          
+          # Apply config changes
+          cat config.json | jq -r '.viewController' > ./FoldaaApp/ViewController.swift
+          cat config.json | jq -r '.infoPlist' > ./FoldaaApp/Info.plist
+          
+          echo "Config applied successfully"
+
+      - name: Download certificates
+        run: |
+          echo "Downloading certificate..."
+          curl -L -o certificate.p12 "${{ github.event.inputs.certificate_url }}"
+          
+          echo "Downloading provisioning profile..."
+          curl -L -o profile.mobileprovision "${{ github.event.inputs.profile_url }}"
+
+      - name: Setup keychain
+        run: |
+          # Create temporary keychain
+          security create-keychain -p actions temp.keychain
+          security default-keychain -s temp.keychain
+          security unlock-keychain -p actions temp.keychain
+          security set-keychain-settings -t 3600 -u temp.keychain
+          
+          # Import certificate
+          security import certificate.p12 -k temp.keychain -P "${{ github.event.inputs.certificate_password }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions temp.keychain
+          
+          # Install provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+
+      - name: Build IPA
+        run: |
+          cd FoldaaApp.xcodeproj/..
+          
+          # Build archive
+          xcodebuild -project FoldaaApp.xcodeproj \
+            -scheme FoldaaApp \
+            -configuration Release \
+            -archivePath build/FoldaaApp.xcarchive \
+            clean archive \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM="${{ secrets.APPLE_TEAM_ID }}" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            PRODUCT_BUNDLE_IDENTIFIER="${{ github.event.inputs.bundle_id }}"
+          
+          # Export IPA
+          cat > ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>${{ secrets.APPLE_TEAM_ID }}</string>
+              <key>uploadSymbols</key>
+              <true/>
+              <key>compileBitcode</key>
+              <false/>
+          </dict>
+          </plist>
+          EOF
+          
+          xcodebuild -exportArchive \
+            -archivePath build/FoldaaApp.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath build/
+
+      - name: Upload to Supabase Storage
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          IPA_PATH="build/FoldaaApp.ipa"
+          STORAGE_PATH="ios-builds/${{ github.event.inputs.build_id }}.ipa"
+          
+          # Upload IPA to Supabase Storage
+          curl -X POST "${SUPABASE_URL}/storage/v1/object/ios-builds/${{ github.event.inputs.build_id }}.ipa" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${IPA_PATH}"
+          
+          # Get public URL
+          IPA_URL="${SUPABASE_URL}/storage/v1/object/public/${STORAGE_PATH}"
+          
+          # Update build record
+          curl -X PATCH "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{\"status\":\"completed\",\"ipa_url\":\"${IPA_URL}\",\"build_completed_at\":\"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"}"
+
+      - name: Handle failure
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          curl -X PATCH "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d "{\"status\":\"failed\",\"error_message\":\"Build failed in GitHub Actions\"}"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          security delete-keychain temp.keychain || true
+          rm -f certificate.p12 profile.mobileprovision config.json

@@ -46,29 +46,46 @@ jobs:
           curl -L -o template.zip "${{ inputs.xcode_project_url }}"
           
           echo "Unzipping template..."
-          unzip -q template.zip -d .
+          unzip -q template.zip
           
           echo "Template contents:"
           ls -la
           
-          if [ -d "FoldaaApp" ]; then
-            echo "✅ FoldaaApp directory found"
-            cd FoldaaApp
-            ls -la
-          else
+          # Find FoldaaApp directory (it will be inside foldaa-ios-builds-main/templates/ios-wrapper/)
+          FOLDAA_DIR=$(find . -type d -name "FoldaaApp" | head -n 1)
+          
+          if [ -z "$FOLDAA_DIR" ]; then
             echo "❌ FoldaaApp directory not found"
             echo "Available directories:"
-            find . -type d -maxdepth 2
+            find . -type d -maxdepth 3
             exit 1
           fi
+          
+          echo "✅ Found FoldaaApp at: $FOLDAA_DIR"
+          
+          # Move FoldaaApp to root for easier access
+          mv "$FOLDAA_DIR" ./FoldaaApp
+          
+          echo "FoldaaApp moved to root:"
+          ls -la FoldaaApp/
 
       - name: Download project config
         run: |
           echo "Downloading config from: ${{ inputs.config_url }}"
-          curl -L -o FoldaaApp/config.json "${{ inputs.config_url }}"
+          curl -L -o config.json "${{ inputs.config_url }}"
           
-          echo "Config downloaded:"
-          cat FoldaaApp/config.json
+          echo "Config downloaded"
+          
+          # Apply config to project files
+          echo "Applying configuration..."
+          
+          # Extract and apply ViewController.swift
+          cat config.json | jq -r '.viewController' > FoldaaApp/ViewController.swift
+          
+          # Extract and apply Info.plist
+          cat config.json | jq -r '.infoPlist' > FoldaaApp/Info.plist
+          
+          echo "✅ Configuration applied"
 
       - name: Download certificates
         run: |

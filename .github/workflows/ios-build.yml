@@ -155,12 +155,15 @@ jobs:
           echo "Profile size: $(ls -lh profile.mobileprovision | awk '{print $5}')"
 
       - name: Setup keychain
+        env:
+          CERT_PASSWORD: ${{ inputs.certificate_password }}
+          KEYCHAIN_PASSWORD: actions
         run: |
           # Create temporary keychain
           echo "Creating keychain..."
-          security create-keychain -p actions build.keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
-          security unlock-keychain -p actions build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
           
           # Debug: Check certificate file
@@ -168,65 +171,104 @@ jobs:
           file cert.p12
           echo "Certificate size: $(ls -lh cert.p12 | awk '{print $5}')"
           
-          # Debug: Check if password is empty
+          # Validate password
           if [ -z "$CERT_PASSWORD" ]; then
             echo "❌ ERROR: Certificate password is empty!"
             exit 1
           fi
           
           echo "Password length: ${#CERT_PASSWORD} characters"
-          echo "Password first 3 chars: ${CERT_PASSWORD:0:3}***"
           
-          # Try to import with debugging
-          echo "Attempting to import certificate..."
+          # Test certificate with OpenSSL first
+          echo "Testing certificate with OpenSSL..."
+          if openssl pkcs12 -in cert.p12 -noout -passin pass:"$CERT_PASSWORD" 2>&1; then
+            echo "✅ OpenSSL can read the certificate"
+          else
+            echo "❌ OpenSSL cannot read certificate with provided password"
+            echo "Trying to extract certificate info..."
+            openssl pkcs12 -in cert.p12 -info -noout -passin pass:"$CERT_PASSWORD" 2>&1 || true
+            exit 1
+          fi
+          
+          # Import certificate with proper error handling
+          echo "Importing certificate to keychain..."
+          
+          # Use a temporary script to avoid shell escaping issues
+          cat > /tmp/import_cert.sh << 'IMPORT_SCRIPT'
+          #!/bin/bash
           security import cert.p12 \
             -k build.keychain \
             -P "$CERT_PASSWORD" \
             -T /usr/bin/codesign \
             -T /usr/bin/security \
-            -v
+            -A
+          IMPORT_SCRIPT
           
-          IMPORT_EXIT_CODE=$?
+          chmod +x /tmp/import_cert.sh
           
-          if [ $IMPORT_EXIT_CODE -ne 0 ]; then
-            echo "❌ Certificate import failed with code: $IMPORT_EXIT_CODE"
+          if /tmp/import_cert.sh; then
+            echo "✅ Certificate imported successfully"
+          else
+            IMPORT_EXIT_CODE=$?
+            echo "❌ Certificate import failed with exit code: $IMPORT_EXIT_CODE"
             
-            # Try common debugging steps
-            echo "Attempting to get certificate info without importing..."
-            openssl pkcs12 -in cert.p12 -info -noout -passin pass:"$CERT_PASSWORD" 2>&1 || echo "OpenSSL failed to read certificate"
+            # Additional debugging
+            echo ""
+            echo "Debugging information:"
+            echo "1. Checking keychain list:"
+            security list-keychains
             
-            # Try importing with empty password
-            echo "Trying with empty password..."
-            security import cert.p12 \
-              -k build.keychain \
-              -P "" \
-              -T /usr/bin/codesign \
-              -T /usr/bin/security \
-              -v 2>&1 || echo "Empty password didn't work"
+            echo ""
+            echo "2. Checking keychain settings:"
+            security show-keychain-info build.keychain 2>&1 || true
+            
+            echo ""
+            echo "3. Certificate file details:"
+            ls -lh cert.p12
+            xxd -l 32 cert.p12
             
             exit 1
           fi
           
-          echo "✅ Certificate imported successfully"
-          
-          # Allow codesign to access keychain
+          # Set key partition list to allow codesign access
+          echo "Configuring keychain access..."
           security set-key-partition-list \
             -S apple-tool:,apple: \
             -s \
-            -k actions \
+            -k "$KEYCHAIN_PASSWORD" \
             build.keychain
           
+          # Verify certificate was imported
+          echo ""
+          echo "Verifying certificate import:"
+          security find-identity -p codesigning -v build.keychain
+          
+          IDENTITY_COUNT=$(security find-identity -p codesigning build.keychain | grep -c "valid identities found" || echo "0")
+          if [ "$IDENTITY_COUNT" = "0" ]; then
+            echo "❌ No valid signing identities found"
+            exit 1
+          fi
+          
           # Install provisioning profile
+          echo ""
           echo "Installing provisioning profile..."
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
           
-          # Verify installation
+          # Get UUID from provisioning profile
+          PROFILE_UUID=$(security cms -D -i profile.mobileprovision | grep -a "UUID" | grep -o "[-A-Z0-9]\{36\}")
+          
+          if [ -z "$PROFILE_UUID" ]; then
+            echo "⚠️ Could not extract profile UUID, using default name"
+            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+          else
+            echo "Profile UUID: $PROFILE_UUID"
+            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+          fi
+          
+          echo ""
           echo "✅ Keychain setup complete"
-          echo "Available signing identities:"
-          security find-identity -p codesigning -v build.keychain
-        env:
-          CERT_PASSWORD: ${{ inputs.certificate_password }}
+          echo "Installed profiles:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
 
       - name: Build IPA
         run: |
@@ -375,6 +417,6 @@ jobs:
           security delete-keychain build.keychain || true
           
           # Remove sensitive files
-          rm -f cert.p12 profile.mobileprovision || true
+          rm -f cert.p12 profile.mobileprovision /tmp/import_cert.sh || true
           
           echo "✅ Cleanup complete"

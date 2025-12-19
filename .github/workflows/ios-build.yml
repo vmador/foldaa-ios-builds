@@ -137,40 +137,73 @@ jobs:
           PROFILE_PATH: ${{ inputs.profile_path }}
         run: |
           echo "Downloading certificate from Supabase Storage..."
-          echo "Certificate path: $CERT_PATH"
+          echo "Certificate path: ${CERT_PATH}"
           
-          # Download using authenticated Storage API
-          curl -X GET \
+          # Download using authenticated Storage API with verbose output
+          HTTP_CODE=$(curl -X GET \
             "${SUPABASE_URL}/storage/v1/object/ios-certificates/${CERT_PATH}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-            -o cert.p12
+            -o cert.p12 \
+            -w "%{http_code}" \
+            -v)
+          
+          echo ""
+          echo "Download HTTP Code: ${HTTP_CODE}"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Failed to download certificate (HTTP ${HTTP_CODE})"
+            echo "File contents:"
+            cat cert.p12
+            exit 1
+          fi
           
           echo "Downloading provisioning profile..."
-          echo "Profile path: $PROFILE_PATH"
+          echo "Profile path: ${PROFILE_PATH}"
           
           curl -X GET \
             "${SUPABASE_URL}/storage/v1/object/ios-certificates/${PROFILE_PATH}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -o profile.mobileprovision
           
-          echo "Certificate size: $(ls -lh cert.p12 | awk '{print $5}')"
-          echo "Profile size: $(ls -lh profile.mobileprovision | awk '{print $5}')"
+          echo ""
+          echo "Certificate file info:"
+          file cert.p12
+          ls -lh cert.p12
+          
+          echo ""
+          echo "Profile file info:"
+          file profile.mobileprovision
+          ls -lh profile.mobileprovision
           
           echo ""
           echo "=== 🔍 CHECKPOINT: Verifying certificate SHA-256 ==="
-          CERT_SHA256=$(shasum -a 256 cert.p12 | awk '{print $1}')
+          
+          # Calculate hash
+          CERT_SHA256_FULL=$(shasum -a 256 cert.p12)
+          CERT_SHA256=$(echo "${CERT_SHA256_FULL}" | awk '{print $1}')
           EXPECTED_SHA256="4b27540e4bf8141b1528f41bbc25f66437fd9361eead9c40014ed693164ede1a"
           
-          echo "📊 Certificate SHA-256: ${CERT_SHA256}"
-          echo "📊 Expected SHA-256: ${EXPECTED_SHA256}"
+          echo "Full shasum output: ${CERT_SHA256_FULL}"
+          echo "Extracted hash: ${CERT_SHA256}"
+          echo "Hash length: ${#CERT_SHA256} characters"
+          echo "Expected hash: ${EXPECTED_SHA256}"
+          echo "Expected length: ${#EXPECTED_SHA256} characters"
           
+          # Compare
           if [ "${CERT_SHA256}" = "${EXPECTED_SHA256}" ]; then
             echo "✅ Certificate hash MATCHES!"
           else
             echo "❌ Certificate hash DOES NOT MATCH!"
             echo ""
-            echo "First 100 bytes of downloaded file:"
+            echo "Difference:"
+            echo "Got:      ${CERT_SHA256}"
+            echo "Expected: ${EXPECTED_SHA256}"
+            echo ""
+            echo "First 100 bytes of cert.p12:"
             xxd -l 100 cert.p12
+            echo ""
+            echo "Checking file type:"
+            file cert.p12
             exit 1
           fi
 

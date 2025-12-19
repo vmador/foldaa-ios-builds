@@ -151,26 +151,64 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security set-keychain-settings -t 3600 -u build.keychain
           
-          echo "Certificate file info:"
+          echo "=== Certificate file verification ==="
           file cert.p12
-          echo "Certificate size: $(ls -lh cert.p12 | awk '{print $5}')"
+          ls -lh cert.p12
+          
+          echo ""
+          echo "First 32 bytes of cert.p12:"
+          xxd -l 32 cert.p12
+          
+          echo ""
+          echo "MD5 hash of cert.p12:"
+          md5 cert.p12
           
           if [ -z "$CERT_PASSWORD" ]; then
             echo "❌ ERROR: Certificate password is empty!"
             exit 1
           fi
           
+          echo ""
           echo "Password length: ${#CERT_PASSWORD} characters"
           
-          echo "Extracting certificate and private key with OpenSSL..."
+          echo ""
+          echo "=== Testing certificate with exact local command ==="
           
-          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -clcerts -nokeys -passin stdin -out cert.pem 2>&1
+          # Use the EXACT command that worked locally
+          echo "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -noout -passin stdin
+          TEST_EXIT=$?
+          
+          if [ $TEST_EXIT -eq 0 ]; then
+            echo "✅ OpenSSL can read the certificate"
+          else
+            echo "❌ OpenSSL CANNOT read certificate"
+            echo "Exit code: $TEST_EXIT"
+            
+            echo ""
+            echo "Trying without stdin (direct password)..."
+            openssl pkcs12 -in cert.p12 -noout -passin pass:"$CERT_PASSWORD"
+            TEST_EXIT2=$?
+            
+            if [ $TEST_EXIT2 -eq 0 ]; then
+              echo "✅ Direct password method works"
+            else
+              echo "❌ Certificate is corrupted or password is wrong"
+              exit 1
+            fi
+          fi
+          
+          echo ""
+          echo "=== Extracting certificate components ==="
+          
+          # Extract certificate
+          echo "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -clcerts -nokeys -passin stdin -out cert.pem
           if [ $? -ne 0 ]; then
             echo "❌ Failed to extract certificate"
             exit 1
           fi
           
-          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -nocerts -nodes -passin stdin -passout pass: -out key.pem 2>&1
+          # Extract private key
+          echo "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -nocerts -nodes -passin stdin -passout pass: -out key.pem
           if [ $? -ne 0 ]; then
             echo "❌ Failed to extract private key"
             exit 1
@@ -178,6 +216,8 @@ jobs:
           
           echo "✅ Certificate and key extracted successfully"
           
+          # Create new P12 without password
+          echo ""
           echo "Creating new P12 without password..."
           openssl pkcs12 -export -out cert-nopass.p12 -in cert.pem -inkey key.pem -passout pass:
           
@@ -186,8 +226,10 @@ jobs:
             exit 1
           fi
           
-          echo "✅ New P12 created without password"
+          echo "✅ New P12 created"
           
+          # Import to keychain
+          echo ""
           echo "Importing certificate to keychain..."
           security import cert-nopass.p12 \
             -k build.keychain \
@@ -196,17 +238,16 @@ jobs:
             -T /usr/bin/security \
             -A
           
-          IMPORT_EXIT=$?
-          
-          if [ $IMPORT_EXIT -eq 0 ]; then
+          if [ $? -eq 0 ]; then
             echo "✅ Certificate imported successfully"
           else
-            echo "❌ Certificate import failed with exit code: $IMPORT_EXIT"
+            echo "❌ Certificate import failed"
             exit 1
           fi
           
           rm -f cert.pem key.pem cert-nopass.p12
           
+          echo ""
           echo "Configuring keychain access..."
           security set-key-partition-list \
             -S apple-tool:,apple: \
@@ -231,7 +272,7 @@ jobs:
           PROFILE_UUID=$(security cms -D -i profile.mobileprovision | grep -a "UUID" | grep -o "[-A-Z0-9]\{36\}")
           
           if [ -z "$PROFILE_UUID" ]; then
-            echo "⚠️ Could not extract profile UUID, using default name"
+            echo "⚠️ Could not extract profile UUID"
             cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
           else
             echo "Profile UUID: $PROFILE_UUID"
@@ -240,8 +281,6 @@ jobs:
           
           echo ""
           echo "✅ Keychain setup complete"
-          echo "Installed profiles:"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/
 
       - name: Build IPA
         run: |

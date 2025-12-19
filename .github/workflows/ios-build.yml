@@ -174,8 +174,8 @@ jobs:
           echo ""
           echo "=== Testing certificate with exact local command ==="
           
-          # Use the EXACT command that worked locally
-          echo "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -noout -passin stdin
+          # Use printf instead of echo to avoid adding newline
+          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -noout -passin stdin
           TEST_EXIT=$?
           
           if [ $TEST_EXIT -eq 0 ]; then
@@ -200,15 +200,15 @@ jobs:
           echo ""
           echo "=== Extracting certificate components ==="
           
-          # Extract certificate
-          echo "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -clcerts -nokeys -passin stdin -out cert.pem
+          # Extract certificate - use printf to avoid newline
+          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -clcerts -nokeys -passin stdin -out cert.pem
           if [ $? -ne 0 ]; then
             echo "❌ Failed to extract certificate"
             exit 1
           fi
           
-          # Extract private key
-          echo "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -nocerts -nodes -passin stdin -passout pass: -out key.pem
+          # Extract private key - use printf to avoid newline
+          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -nocerts -nodes -passin stdin -passout pass: -out key.pem
           if [ $? -ne 0 ]; then
             echo "❌ Failed to extract private key"
             exit 1

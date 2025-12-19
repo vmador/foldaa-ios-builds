@@ -139,6 +139,20 @@ jobs:
           
           echo "Certificate size: $(ls -lh cert.p12 | awk '{print $5}')"
           echo "Profile size: $(ls -lh profile.mobileprovision | awk '{print $5}')"
+          
+          echo ""
+          echo "=== 🔍 CHECKPOINT: Verifying certificate SHA-256 in GitHub Actions ==="
+          CERT_SHA256=$(shasum -a 256 cert.p12 | awk '{print $1}')
+          echo "📊 Certificate SHA-256 (GITHUB ACTIONS): $CERT_SHA256"
+          echo "📊 Expected SHA-256: 4b27540e4bf8141b1528f41bbc25f66437fd9361eead9c40014ed693164ede1a"
+          
+          if [ "$CERT_SHA256" = "4b27540e4bf8141b1528f41bbc25f66437fd9361eead9c40014ed693164ede1a" ]; then
+            echo "✅ Certificate hash MATCHES!"
+          else
+            echo "❌ Certificate hash DOES NOT MATCH!"
+            echo "This means the file was corrupted during download from Supabase Storage"
+            exit 1
+          fi
 
       - name: Setup keychain
         env:
@@ -158,10 +172,6 @@ jobs:
           echo ""
           echo "First 32 bytes of cert.p12:"
           xxd -l 32 cert.p12
-          
-          echo ""
-          echo "MD5 hash of cert.p12:"
-          md5 cert.p12
           
           if [ -z "$CERT_PASSWORD" ]; then
             echo "❌ ERROR: Certificate password is empty!"

@@ -334,7 +334,7 @@
 /* Begin XCConfigurationList section */
 		4B27540E4BF8141B1528F41C /* Build configuration list for PBXNativeTarget "FoldaaApp" */ = {
 			isa = XCConfigurationList;
-			buildConfiguations = (
+			buildConfigurations = (
 				61EEAD9C40014ED693164EDE /* Debug */,
 				1A4B27540E4BF8141B1528F4 /* Release */,
 			);

@@ -371,7 +371,6 @@ jobs:
           echo "Bundle ID: ${{ inputs.bundle_id }}"
           echo "Version: ${{ inputs.version_number }}"
           echo "Build: ${{ inputs.build_number }}"
-          echo "Profile Name: $PROFILE_NAME"
           
           if [ ! -f "FoldaaApp.xcodeproj/project.pbxproj" ]; then
             echo "❌ FoldaaApp.xcodeproj not found"
@@ -388,33 +387,25 @@ jobs:
             -allowProvisioningUpdates \
             PRODUCT_BUNDLE_IDENTIFIER="${{ inputs.bundle_id }}" \
             MARKETING_VERSION="${{ inputs.version_number }}" \
-            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}" \
-            DEVELOPMENT_TEAM=5ZLA43GJ93J
+            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}"
           
-          if [ ! -f "ExportOptions.plist" ]; then
-            echo "Creating ExportOptions.plist..."
-            cat > ExportOptions.plist <<EOF
+          echo "Creating ExportOptions.plist..."
+          cat > ExportOptions.plist <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
               <key>method</key>
               <string>app-store</string>
+              <key>teamID</key>
+              <string>5ZLA43GJ93J</string>
               <key>uploadBitcode</key>
               <false/>
               <key>uploadSymbols</key>
               <true/>
-              <key>signingStyle</key>
-              <string>manual</string>
-              <key>provisioningProfiles</key>
-              <dict>
-                  <key>${{ inputs.bundle_id }}</key>
-                  <string>$PROFILE_NAME</string>
-              </dict>
           </dict>
           </plist>
           EOF
-          fi
           
           echo "ExportOptions.plist contents:"
           cat ExportOptions.plist

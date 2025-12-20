@@ -327,41 +327,40 @@ jobs:
           fi
           
           echo ""
-          echo "Installing provisioning profile..."
+          echo "=== Installing and extracting provisioning profile info ==="
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           
-          # Try to extract UUID
-          echo "Attempting to extract profile UUID..."
+          # Extract profile name
+          echo "Extracting profile name..."
+          PROFILE_NAME=$(security cms -D -i profile.mobileprovision 2>/dev/null | grep -A 1 "<key>Name</key>" | grep "<string>" | sed 's/.*<string>\(.*\)<\/string>.*/\1/')
+          
+          if [ -z "$PROFILE_NAME" ]; then
+            echo "⚠️ Could not extract profile name"
+            PROFILE_NAME="Unknown Profile"
+          else
+            echo "✅ Profile Name: $PROFILE_NAME"
+          fi
+          
+          # Extract UUID
+          echo "Extracting profile UUID..."
           PROFILE_UUID=$(security cms -D -i profile.mobileprovision 2>/dev/null | grep -a "UUID" | grep -o "[-A-Z0-9]\{36\}" | head -n 1)
           
           if [ -z "$PROFILE_UUID" ]; then
-            echo "⚠️ Could not extract profile UUID (this is normal for some profiles)"
+            echo "⚠️ Could not extract profile UUID"
             echo "Installing profile without UUID..."
-            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/ 2>&1
-            
-            if [ $? -eq 0 ]; then
-              echo "✅ Provisioning profile installed (no UUID)"
-            else
-              echo "❌ Failed to copy provisioning profile"
-              echo "Trying alternative location..."
-              cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-            fi
+            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
           else
-            echo "✅ Profile UUID extracted: $PROFILE_UUID"
+            echo "✅ Profile UUID: $PROFILE_UUID"
             cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
-            
-            if [ $? -eq 0 ]; then
-              echo "✅ Provisioning profile installed with UUID"
-            else
-              echo "❌ Failed to copy with UUID, trying without..."
-              cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
-            fi
           fi
           
           # List installed profiles
           echo ""
           echo "Installed provisioning profiles:"
           ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found"
+          
+          # Export profile name for next step
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
           
           echo ""
           echo "✅ Keychain setup complete"
@@ -372,6 +371,7 @@ jobs:
           echo "Bundle ID: ${{ inputs.bundle_id }}"
           echo "Version: ${{ inputs.version_number }}"
           echo "Build: ${{ inputs.build_number }}"
+          echo "Profile Name: $PROFILE_NAME"
           
           if [ ! -f "FoldaaApp.xcodeproj/project.pbxproj" ]; then
             echo "❌ FoldaaApp.xcodeproj not found"
@@ -388,7 +388,9 @@ jobs:
             -allowProvisioningUpdates \
             PRODUCT_BUNDLE_IDENTIFIER="${{ inputs.bundle_id }}" \
             MARKETING_VERSION="${{ inputs.version_number }}" \
-            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}"
+            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            DEVELOPMENT_TEAM=5ZLA43GJ93J
           
           if [ ! -f "ExportOptions.plist" ]; then
             echo "Creating ExportOptions.plist..."
@@ -404,11 +406,19 @@ jobs:
               <key>uploadSymbols</key>
               <true/>
               <key>signingStyle</key>
-              <string>automatic</string>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>${{ inputs.bundle_id }}</key>
+                  <string>$PROFILE_NAME</string>
+              </dict>
           </dict>
           </plist>
           EOF
           fi
+          
+          echo "ExportOptions.plist contents:"
+          cat ExportOptions.plist
           
           echo "Exporting IPA..."
           xcodebuild -exportArchive \

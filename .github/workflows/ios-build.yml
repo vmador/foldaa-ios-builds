@@ -54,39 +54,42 @@ jobs:
           FILE_SIZE=$(ls -lh template.zip | awk '{print $5}')
           echo "Downloaded file size: $FILE_SIZE"
           
-          echo "File header (first 20 bytes):"
-          xxd -l 20 template.zip
-          
-          echo "Attempting to list zip contents:"
-          unzip -l template.zip || echo "Failed to list contents"
-          
-          if file template.zip | grep -q "HTML"; then
-            echo "❌ Downloaded file is HTML, not a ZIP!"
-            echo "First 200 bytes:"
-            head -c 200 template.zip
-            exit 1
-          fi
-          
           echo "Unzipping template..."
           unzip -q template.zip
           
           echo "Template contents:"
           ls -la
           
-          FOLDAA_DIR=$(find . -type d -name "FoldaaApp" | head -n 1)
+          # Find the ios-wrapper directory
+          IOS_WRAPPER_DIR=$(find . -type d -name "ios-wrapper" | head -n 1)
           
-          if [ -z "$FOLDAA_DIR" ]; then
-            echo "❌ FoldaaApp directory not found"
+          if [ -z "$IOS_WRAPPER_DIR" ]; then
+            echo "❌ ios-wrapper directory not found"
             echo "Available directories:"
             find . -type d -maxdepth 3
             exit 1
           fi
           
-          echo "✅ Found FoldaaApp at: $FOLDAA_DIR"
+          echo "✅ Found ios-wrapper at: $IOS_WRAPPER_DIR"
           
-          mv "$FOLDAA_DIR" ./FoldaaApp
+          # Copy the entire ios-wrapper contents to root
+          cp -r "$IOS_WRAPPER_DIR"/* .
           
-          echo "FoldaaApp moved to root:"
+          echo "Contents after copy:"
+          ls -la
+          
+          # Verify both FoldaaApp directory and xcodeproj exist
+          if [ ! -d "FoldaaApp" ]; then
+            echo "❌ FoldaaApp directory not found"
+            exit 1
+          fi
+          
+          if [ ! -d "FoldaaApp.xcodeproj" ]; then
+            echo "❌ FoldaaApp.xcodeproj not found"
+            exit 1
+          fi
+          
+          echo "✅ Both FoldaaApp and FoldaaApp.xcodeproj found"
           ls -la FoldaaApp/
 
       - name: Download project config
@@ -365,8 +368,6 @@ jobs:
 
       - name: Build IPA
         run: |
-          cd FoldaaApp
-          
           echo "Building iOS app..."
           echo "Bundle ID: ${{ inputs.bundle_id }}"
           echo "Version: ${{ inputs.version_number }}"
@@ -425,7 +426,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          IPA_PATH="FoldaaApp/build/FoldaaApp.ipa"
+          IPA_PATH="build/FoldaaApp.ipa"
           IPA_NAME="${{ inputs.build_id }}.ipa"
           
           echo "Uploading IPA to Supabase Storage..."
@@ -435,7 +436,7 @@ jobs:
           if [ ! -f "$IPA_PATH" ]; then
             echo "❌ IPA file not found at $IPA_PATH"
             echo "Available files in build directory:"
-            ls -la FoldaaApp/build/
+            ls -la build/
             exit 1
           fi
           

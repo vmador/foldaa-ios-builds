@@ -327,15 +327,38 @@ jobs:
           echo "Installing provisioning profile..."
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           
-          PROFILE_UUID=$(security cms -D -i profile.mobileprovision | grep -a "UUID" | grep -o "[-A-Z0-9]\{36\}")
+          # Try to extract UUID
+          echo "Attempting to extract profile UUID..."
+          PROFILE_UUID=$(security cms -D -i profile.mobileprovision 2>/dev/null | grep -a "UUID" | grep -o "[-A-Z0-9]\{36\}" | head -n 1)
           
           if [ -z "$PROFILE_UUID" ]; then
-            echo "⚠️ Could not extract profile UUID"
-            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+            echo "⚠️ Could not extract profile UUID (this is normal for some profiles)"
+            echo "Installing profile without UUID..."
+            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/ 2>&1
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Provisioning profile installed (no UUID)"
+            else
+              echo "❌ Failed to copy provisioning profile"
+              echo "Trying alternative location..."
+              cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+            fi
           else
-            echo "Profile UUID: $PROFILE_UUID"
+            echo "✅ Profile UUID extracted: $PROFILE_UUID"
             cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
+            
+            if [ $? -eq 0 ]; then
+              echo "✅ Provisioning profile installed with UUID"
+            else
+              echo "❌ Failed to copy with UUID, trying without..."
+              cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
+            fi
           fi
+          
+          # List installed profiles
+          echo ""
+          echo "Installed provisioning profiles:"
+          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found"
           
           echo ""
           echo "✅ Keychain setup complete"

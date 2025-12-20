@@ -1,76 +1,119 @@
-// !$*UTF8*$!
-{
+#!/usr/bin/env python3
+import random
+import string
+
+def generate_uuid():
+    """Generate a valid 24-character hexadecimal UUID for Xcode"""
+    return ''.join(random.choices('0123456789ABCDEF', k=24))
+
+# Generate UUIDs for all objects
+uuids = {
+    'AppDelegate_BuildFile': generate_uuid(),
+    'AppDelegate_FileRef': generate_uuid(),
+    'ViewController_BuildFile': generate_uuid(),
+    'ViewController_FileRef': generate_uuid(),
+    'Assets_BuildFile': generate_uuid(),
+    'Assets_FileRef': generate_uuid(),
+    'LaunchScreen_BuildFile': generate_uuid(),
+    'LaunchScreen_VariantGroup': generate_uuid(),
+    'LaunchScreen_Base': generate_uuid(),
+    'InfoPlist_FileRef': generate_uuid(),
+    'App_Product': generate_uuid(),
+    'Frameworks_Phase': generate_uuid(),
+    'FoldaaApp_Group': generate_uuid(),
+    'Products_Group': generate_uuid(),
+    'Main_Group': generate_uuid(),
+    'FoldaaApp_Target': generate_uuid(),
+    'Sources_Phase': generate_uuid(),
+    'Resources_Phase': generate_uuid(),
+    'Target_BuildConfigList': generate_uuid(),
+    'Project_Object': generate_uuid(),
+    'Project_BuildConfigList': generate_uuid(),
+    'Debug_ProjectConfig': generate_uuid(),
+    'Release_ProjectConfig': generate_uuid(),
+    'Debug_TargetConfig': generate_uuid(),
+    'Release_TargetConfig': generate_uuid(),
+}
+
+# Print UUIDs for reference
+print("Generated UUIDs:")
+for key, value in uuids.items():
+    print(f"{key}: {value}")
+
+# Create the project.pbxproj content
+project_content = f"""// !$*UTF8*$!
+{{
 	archiveVersion = 1;
-	classes = {
-	};
+	classes = {{
+	}};
 	objectVersion = 56;
-	objects = {
+	objects = {{
 
 /* Begin PBXBuildFile section */
-		A1111111111111111111111A /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1111111111111111111111B /* AppDelegate.swift */; };
-		A1111111111111111111111C /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1111111111111111111111D /* ViewController.swift */; };
-		A1111111111111111111111E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1111111111111111111111F /* Assets.xcassets */; };
-		A1111111111111111111112G /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A1111111111111111111112H /* LaunchScreen.storyboard */; };
+		{uuids['AppDelegate_BuildFile']} /* AppDelegate.swift in Sources */ = {{isa = PBXBuildFile; fileRef = {uuids['AppDelegate_FileRef']} /* AppDelegate.swift */; }};
+		{uuids['ViewController_BuildFile']} /* ViewController.swift in Sources */ = {{isa = PBXBuildFile; fileRef = {uuids['ViewController_FileRef']} /* ViewController.swift */; }};
+		{uuids['Assets_BuildFile']} /* Assets.xcassets in Resources */ = {{isa = PBXBuildFile; fileRef = {uuids['Assets_FileRef']} /* Assets.xcassets */; }};
+		{uuids['LaunchScreen_BuildFile']} /* LaunchScreen.storyboard in Resources */ = {{isa = PBXBuildFile; fileRef = {uuids['LaunchScreen_VariantGroup']} /* LaunchScreen.storyboard */; }};
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A1111111111111111111112A /* FoldaaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldaaApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A1111111111111111111111B /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		A1111111111111111111111D /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
-		A1111111111111111111111F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A1111111111111111111112I /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
-		A1111111111111111111112J /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		{uuids['App_Product']} /* FoldaaApp.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FoldaaApp.app; sourceTree = BUILT_PRODUCTS_DIR; }};
+		{uuids['AppDelegate_FileRef']} /* AppDelegate.swift */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; }};
+		{uuids['ViewController_FileRef']} /* ViewController.swift */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; }};
+		{uuids['Assets_FileRef']} /* Assets.xcassets */ = {{isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; }};
+		{uuids['LaunchScreen_Base']} /* Base */ = {{isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; }};
+		{uuids['InfoPlist_FileRef']} /* Info.plist */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; }};
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		A1111111111111111111112B /* Frameworks */ = {
+		{uuids['Frameworks_Phase']} /* Frameworks */ = {{
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};
+		}};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		A1111111111111111111112C /* FoldaaApp */ = {
+		{uuids['FoldaaApp_Group']} /* FoldaaApp */ = {{
 			isa = PBXGroup;
 			children = (
-				A1111111111111111111111B /* AppDelegate.swift */,
-				A1111111111111111111111D /* ViewController.swift */,
-				A1111111111111111111111F /* Assets.xcassets */,
-				A1111111111111111111112H /* LaunchScreen.storyboard */,
-				A1111111111111111111112J /* Info.plist */,
+				{uuids['AppDelegate_FileRef']} /* AppDelegate.swift */,
+				{uuids['ViewController_FileRef']} /* ViewController.swift */,
+				{uuids['Assets_FileRef']} /* Assets.xcassets */,
+				{uuids['LaunchScreen_VariantGroup']} /* LaunchScreen.storyboard */,
+				{uuids['InfoPlist_FileRef']} /* Info.plist */,
 			);
 			path = FoldaaApp;
 			sourceTree = "<group>";
-		};
-		A1111111111111111111112D /* Products */ = {
+		}};
+		{uuids['Products_Group']} /* Products */ = {{
 			isa = PBXGroup;
 			children = (
-				A1111111111111111111112A /* FoldaaApp.app */,
+				{uuids['App_Product']} /* FoldaaApp.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
-		};
-		A1111111111111111111112E = {
+		}};
+		{uuids['Main_Group']} = {{
 			isa = PBXGroup;
 			children = (
-				A1111111111111111111112C /* FoldaaApp */,
-				A1111111111111111111112D /* Products */,
+				{uuids['FoldaaApp_Group']} /* FoldaaApp */,
+				{uuids['Products_Group']} /* Products */,
 			);
 			sourceTree = "<group>";
-		};
+		}};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A1111111111111111111112F /* FoldaaApp */ = {
+		{uuids['FoldaaApp_Target']} /* FoldaaApp */ = {{
 			isa = PBXNativeTarget;
-			buildConfigurationList = A1111111111111111111113A /* Build configuration list for PBXNativeTarget "FoldaaApp" */;
+			buildConfigurationList = {uuids['Target_BuildConfigList']} /* Build configuration list for PBXNativeTarget "FoldaaApp" */;
 			buildPhases = (
-				A1111111111111111111112G /* Sources */,
-				A1111111111111111111112B /* Frameworks */,
-				A1111111111111111111113B /* Resources */,
+				{uuids['Sources_Phase']} /* Sources */,
+				{uuids['Frameworks_Phase']} /* Frameworks */,
+				{uuids['Resources_Phase']} /* Resources */,
 			);
 			buildRules = (
 			);
@@ -78,25 +121,25 @@
 			);
 			name = FoldaaApp;
 			productName = FoldaaApp;
-			productReference = A1111111111111111111112A /* FoldaaApp.app */;
+			productReference = {uuids['App_Product']} /* FoldaaApp.app */;
 			productType = "com.apple.product-type.application";
-		};
+		}};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		A1111111111111111111113C /* Project object */ = {
+		{uuids['Project_Object']} /* Project object */ = {{
 			isa = PBXProject;
-			attributes = {
+			attributes = {{
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
 				LastUpgradeCheck = 1500;
-				TargetAttributes = {
-					A1111111111111111111112F = {
+				TargetAttributes = {{
+					{uuids['FoldaaApp_Target']} = {{
 						CreatedOnToolsVersion = 15.0;
-					};
-				};
-			};
-			buildConfigurationList = A1111111111111111111113D /* Build configuration list for PBXProject "FoldaaApp" */;
+					}};
+				}};
+			}};
+			buildConfigurationList = {uuids['Project_BuildConfigList']} /* Build configuration list for PBXProject "FoldaaApp" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -104,55 +147,55 @@
 				en,
 				Base,
 			);
-			mainGroup = A1111111111111111111112E;
-			productRefGroup = A1111111111111111111112D /* Products */;
+			mainGroup = {uuids['Main_Group']};
+			productRefGroup = {uuids['Products_Group']} /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A1111111111111111111112F /* FoldaaApp */,
+				{uuids['FoldaaApp_Target']} /* FoldaaApp */,
 			);
-		};
+		}};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		A1111111111111111111113B /* Resources */ = {
+		{uuids['Resources_Phase']} /* Resources */ = {{
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1111111111111111111112G /* LaunchScreen.storyboard in Resources */,
-				A1111111111111111111111E /* Assets.xcassets in Resources */,
+				{uuids['LaunchScreen_BuildFile']} /* LaunchScreen.storyboard in Resources */,
+				{uuids['Assets_BuildFile']} /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};
+		}};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A1111111111111111111112G /* Sources */ = {
+		{uuids['Sources_Phase']} /* Sources */ = {{
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1111111111111111111111C /* ViewController.swift in Sources */,
-				A1111111111111111111111A /* AppDelegate.swift in Sources */,
+				{uuids['ViewController_BuildFile']} /* ViewController.swift in Sources */,
+				{uuids['AppDelegate_BuildFile']} /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-		};
+		}};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXVariantGroup section */
-		A1111111111111111111112H /* LaunchScreen.storyboard */ = {
+		{uuids['LaunchScreen_VariantGroup']} /* LaunchScreen.storyboard */ = {{
 			isa = PBXVariantGroup;
 			children = (
-				A1111111111111111111112I /* Base */,
+				{uuids['LaunchScreen_Base']} /* Base */,
 			);
 			name = LaunchScreen.storyboard;
 			sourceTree = "<group>";
-		};
+		}};
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		A1111111111111111111113E /* Debug */ = {
+		{uuids['Debug_ProjectConfig']} /* Debug */ = {{
 			isa = XCBuildConfiguration;
-			buildSettings = {
+			buildSettings = {{
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -210,12 +253,12 @@
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-			};
+			}};
 			name = Debug;
-		};
-		A1111111111111111111113F /* Release */ = {
+		}};
+		{uuids['Release_ProjectConfig']} /* Release */ = {{
 			isa = XCBuildConfiguration;
-			buildSettings = {
+			buildSettings = {{
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -266,12 +309,12 @@
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
-			};
+			}};
 			name = Release;
-		};
-		A1111111111111111111114G /* Debug */ = {
+		}};
+		{uuids['Debug_TargetConfig']} /* Debug */ = {{
 			isa = XCBuildConfiguration;
-			buildSettings = {
+			buildSettings = {{
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Manual;
@@ -296,12 +339,12 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-			};
+			}};
 			name = Debug;
-		};
-		A1111111111111111111114H /* Release */ = {
+		}};
+		{uuids['Release_TargetConfig']} /* Release */ = {{
 			isa = XCBuildConfiguration;
-			buildSettings = {
+			buildSettings = {{
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Manual;
@@ -326,31 +369,43 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-			};
+			}};
 			name = Release;
-		};
+		}};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A1111111111111111111113A /* Build configuration list for PBXNativeTarget "FoldaaApp" */ = {
+		{uuids['Target_BuildConfigList']} /* Build configuration list for PBXNativeTarget "FoldaaApp" */ = {{
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A1111111111111111111114G /* Debug */,
-				A1111111111111111111114H /* Release */,
+				{uuids['Debug_TargetConfig']} /* Debug */,
+				{uuids['Release_TargetConfig']} /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
-		};
-		A1111111111111111111113D /* Build configuration list for PBXProject "FoldaaApp" */ = {
+		}};
+		{uuids['Project_BuildConfigList']} /* Build configuration list for PBXProject "FoldaaApp" */ = {{
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				A1111111111111111111113E /* Debug */,
-				A1111111111111111111113F /* Release */,
+				{uuids['Debug_ProjectConfig']} /* Debug */,
+				{uuids['Release_ProjectConfig']} /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
-		};
+		}};
 /* End XCConfigurationList section */
-	};
-	rootObject = A1111111111111111111113C /* Project object */;
-}
+	}};
+	rootObject = {uuids['Project_Object']} /* Project object */;
+}}
+"""
+
+# Write the file
+with open('project.pbxproj', 'w') as f:
+    f.write(project_content)
+
+print("\n✅ project.pbxproj generated successfully!")
+print("📁 File location: ./project.pbxproj")
+print("\n📋 Next steps:")
+print("1. Copy this file to: FoldaaApp.xcodeproj/project.pbxproj")
+print("2. Commit and push to GitHub")
+print("3. Try the build again!")

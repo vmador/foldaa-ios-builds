@@ -6,20 +6,20 @@ on:
       build_id:
         description: 'Build ID from Supabase'
         required: true
-      xcode_project_url:
-        description: 'URL to download Xcode project'
+      pwa_url:
+        description: 'URL of the PWA to wrap'
         required: true
-      config_url:
-        description: 'URL to download config.json'
+      apple_team_id:
+        description: 'Apple Development Team ID'
         required: true
-      certificate_path:
-        description: 'Path to certificate in Supabase Storage'
+      certificate_url:
+        description: 'Direct URL to download p12 certificate'
         required: true
-      profile_path:
-        description: 'Path to provisioning profile in Supabase Storage'
+      profile_url:
+        description: 'Direct URL to download provisioning profile'
         required: true
       certificate_password:
-        description: 'Certificate password'
+        description: 'Password for the p12 certificate'
         required: true
       bundle_id:
         description: 'App bundle ID'
@@ -34,363 +34,68 @@ on:
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 60
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Xcode project template
+      - name: Setup Build Environment
         run: |
-          echo "Downloading template from: ${{ inputs.xcode_project_url }}"
+          echo "Setting up environment..."
+          # Copy template to current directory
+          cp -r templates/ios-wrapper/* .
           
-          curl -L -v -o template.zip "${{ inputs.xcode_project_url }}"
+          # Inject PWA URL
+          sed -i '' "s|{{PWA_URL}}|${{ github.event.inputs.pwa_url }}|g" FoldaaApp/ViewController.swift
           
-          if [ ! -f template.zip ]; then
-            echo "❌ template.zip was not created"
-            exit 1
-          fi
-          
-          FILE_SIZE=$(ls -lh template.zip | awk '{print $5}')
-          echo "Downloaded file size: $FILE_SIZE"
-          
-          echo "Unzipping template..."
-          unzip -q template.zip
-          
-          echo "Template contents:"
-          ls -la
-          
-          # Find the ios-wrapper directory
-          IOS_WRAPPER_DIR=$(find . -type d -name "ios-wrapper" | head -n 1)
-          
-          if [ -z "$IOS_WRAPPER_DIR" ]; then
-            echo "❌ ios-wrapper directory not found"
-            echo "Available directories:"
-            find . -type d -maxdepth 3
-            exit 1
-          fi
-          
-          echo "✅ Found ios-wrapper at: $IOS_WRAPPER_DIR"
-          
-          # Copy the entire ios-wrapper contents to root
-          cp -r "$IOS_WRAPPER_DIR"/* .
-          
-          echo "Contents after copy:"
-          ls -la
-          
-          # Verify both FoldaaApp directory and xcodeproj exist
-          if [ ! -d "FoldaaApp" ]; then
-            echo "❌ FoldaaApp directory not found"
-            exit 1
-          fi
-          
-          if [ ! -d "FoldaaApp.xcodeproj" ]; then
-            echo "❌ FoldaaApp.xcodeproj not found"
-            exit 1
-          fi
-          
-          echo "✅ Both FoldaaApp and FoldaaApp.xcodeproj found"
-          ls -la FoldaaApp/
-
-      - name: Download project config
+      - name: Install Certificates
         run: |
-          echo "Downloading config from: ${{ inputs.config_url }}"
-          curl -L -o config.json "${{ inputs.config_url }}"
+          echo "Downloading and installing certificates..."
+          curl -L -o cert.p12 "${{ github.event.inputs.certificate_url }}"
+          curl -L -o profile.mobileprovision "${{ github.event.inputs.profile_url }}"
           
-          echo "Config downloaded"
+          # Create keychain
+          security create-keychain -p "" build.keychain
+          security list-keychains -s build.keychain
+          security unlock-keychain -p "" build.keychain
           
-          if ! command -v jq &> /dev/null; then
-            echo "Installing jq..."
-            brew install jq
-          fi
+          # Import certificate
+          security import cert.p12 -k build.keychain -P "${{ github.event.inputs.certificate_password }}" -A
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           
-          echo "Config contents:"
-          cat config.json
-          
-          echo "Applying configuration..."
-          
-          PWA_URL=$(cat config.json | jq -r '.pwaUrl')
-          APP_NAME=$(cat config.json | jq -r '.appName')
-          BUNDLE_ID=$(cat config.json | jq -r '.bundleId')
-          VERSION=$(cat config.json | jq -r '.version')
-          BUILD_NUMBER=$(cat config.json | jq -r '.buildNumber')
-          
-          echo "PWA URL: $PWA_URL"
-          echo "App Name: $APP_NAME"
-          echo "Bundle ID: $BUNDLE_ID"
-          echo "Version: $VERSION"
-          echo "Build Number: $BUILD_NUMBER"
-          
-          sed -i '' "s|{{PWA_URL}}|$PWA_URL|g" FoldaaApp/ViewController.swift
-          
-          sed -i '' "s|{{APP_NAME}}|$APP_NAME|g" FoldaaApp/Info.plist
-          sed -i '' "s|{{BUNDLE_ID}}|$BUNDLE_ID|g" FoldaaApp/Info.plist
-          sed -i '' "s|{{VERSION}}|$VERSION|g" FoldaaApp/Info.plist
-          sed -i '' "s|{{BUILD_NUMBER}}|$BUILD_NUMBER|g" FoldaaApp/Info.plist
-          
-          echo "✅ Configuration applied"
-          echo "ViewController.swift size: $(ls -lh FoldaaApp/ViewController.swift | awk '{print $5}')"
-          echo "Info.plist size: $(ls -lh FoldaaApp/Info.plist | awk '{print $5}')"
-
-      - name: Download certificates
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          CERT_PATH: ${{ inputs.certificate_path }}
-          PROFILE_PATH: ${{ inputs.profile_path }}
-        run: |
-          echo "Downloading certificate from Supabase Storage..."
-          echo "Certificate path: ${CERT_PATH}"
-          
-          # Download using authenticated Storage API with verbose output
-          HTTP_CODE=$(curl -X GET \
-            "${SUPABASE_URL}/storage/v1/object/ios-certificates/${CERT_PATH}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-            -o cert.p12 \
-            -w "%{http_code}" \
-            -v)
-          
-          echo ""
-          echo "Download HTTP Code: ${HTTP_CODE}"
-          
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Failed to download certificate (HTTP ${HTTP_CODE})"
-            echo "File contents:"
-            cat cert.p12
-            exit 1
-          fi
-          
-          echo "Downloading provisioning profile..."
-          echo "Profile path: ${PROFILE_PATH}"
-          
-          curl -X GET \
-            "${SUPABASE_URL}/storage/v1/object/ios-certificates/${PROFILE_PATH}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-            -o profile.mobileprovision
-          
-          echo ""
-          echo "Certificate file info:"
-          file cert.p12
-          ls -lh cert.p12
-          
-          echo ""
-          echo "Profile file info:"
-          file profile.mobileprovision
-          ls -lh profile.mobileprovision
-          
-          echo ""
-          echo "=== 🔍 CHECKPOINT: Verifying certificate SHA-256 ==="
-          
-          # Calculate hash
-          CERT_SHA256_FULL=$(shasum -a 256 cert.p12)
-          CERT_SHA256=$(echo "${CERT_SHA256_FULL}" | awk '{print $1}')
-          EXPECTED_SHA256="4b27540e4bf8141b1528f41bbc25f66437fd9361eead9c40014ed693164ede1a"
-          
-          echo "Full shasum output: ${CERT_SHA256_FULL}"
-          echo "Extracted hash: ${CERT_SHA256}"
-          echo "Hash length: ${#CERT_SHA256} characters"
-          echo "Expected hash: ${EXPECTED_SHA256}"
-          echo "Expected length: ${#EXPECTED_SHA256} characters"
-          
-          # Compare
-          if [ "${CERT_SHA256}" = "${EXPECTED_SHA256}" ]; then
-            echo "✅ Certificate hash MATCHES!"
-          else
-            echo "❌ Certificate hash DOES NOT MATCH!"
-            echo ""
-            echo "Difference:"
-            echo "Got:      ${CERT_SHA256}"
-            echo "Expected: ${EXPECTED_SHA256}"
-            echo ""
-            echo "First 100 bytes of cert.p12:"
-            xxd -l 100 cert.p12
-            echo ""
-            echo "Checking file type:"
-            file cert.p12
-            exit 1
-          fi
-
-      - name: Setup keychain
-        env:
-          CERT_PASSWORD: ${{ inputs.certificate_password }}
-          KEYCHAIN_PASSWORD: actions
-        run: |
-          echo "Creating keychain..."
-          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-          security set-keychain-settings -t 3600 -u build.keychain
-          
-          echo "=== Certificate file verification ==="
-          file cert.p12
-          ls -lh cert.p12
-          
-          echo ""
-          echo "First 32 bytes of cert.p12:"
-          xxd -l 32 cert.p12
-          
-          if [ -z "$CERT_PASSWORD" ]; then
-            echo "❌ ERROR: Certificate password is empty!"
-            exit 1
-          fi
-          
-          echo ""
-          echo "Password length: ${#CERT_PASSWORD} characters"
-          
-          echo ""
-          echo "=== Testing certificate with OpenSSL ==="
-          
-          # Use printf instead of echo to avoid adding newline
-          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -noout -passin stdin
-          TEST_EXIT=$?
-          
-          if [ $TEST_EXIT -eq 0 ]; then
-            echo "✅ OpenSSL can read the certificate"
-          else
-            echo "❌ OpenSSL CANNOT read certificate"
-            echo "Exit code: $TEST_EXIT"
-            exit 1
-          fi
-          
-          echo ""
-          echo "=== Extracting and importing certificate components ==="
-          
-          # Extract certificate
-          echo "Extracting certificate..."
-          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -clcerts -nokeys -passin stdin -out cert.pem
-          
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to extract certificate"
-            exit 1
-          fi
-          echo "✅ Certificate extracted"
-          
-          # Extract private key
-          echo "Extracting private key..."
-          printf '%s' "$CERT_PASSWORD" | openssl pkcs12 -in cert.p12 -nocerts -nodes -passin stdin -passout pass: -out key.pem
-          
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to extract private key"
-            exit 1
-          fi
-          echo "✅ Private key extracted"
-          
-          # Import certificate directly
-          echo ""
-          echo "Importing certificate PEM..."
-          security import cert.pem \
-            -k build.keychain \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security \
-            -A
-          
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to import certificate PEM"
-            exit 1
-          fi
-          echo "✅ Certificate PEM imported"
-          
-          # Import private key directly
-          echo ""
-          echo "Importing private key PEM..."
-          security import key.pem \
-            -k build.keychain \
-            -T /usr/bin/codesign \
-            -T /usr/bin/security \
-            -A
-          
-          if [ $? -ne 0 ]; then
-            echo "❌ Failed to import private key PEM"
-            exit 1
-          fi
-          echo "✅ Private key PEM imported"
-          
-          # Cleanup PEM files
-          rm -f cert.pem key.pem
-          
-          echo ""
-          echo "Configuring keychain access..."
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -s \
-            -k "$KEYCHAIN_PASSWORD" \
-            build.keychain
-          
-          echo ""
-          echo "Verifying certificate import:"
-          security find-identity -p codesigning -v build.keychain
-          
-          IDENTITY_COUNT=$(security find-identity -p codesigning build.keychain | grep -c "valid identities found" || echo "0")
-          if [ "$IDENTITY_COUNT" = "0" ]; then
-            echo "❌ No valid signing identities found"
-            exit 1
-          fi
-          
-          echo ""
-          echo "=== Installing and extracting provisioning profile info ==="
+          # Install profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
           
-          # Extract profile name
-          echo "Extracting profile name..."
-          PROFILE_NAME=$(security cms -D -i profile.mobileprovision 2>/dev/null | grep -A 1 "<key>Name</key>" | grep "<string>" | sed 's/.*<string>\(.*\)<\/string>.*/\1/')
-          
-          if [ -z "$PROFILE_NAME" ]; then
-            echo "⚠️ Could not extract profile name"
-            PROFILE_NAME="Unknown Profile"
-          else
-            echo "✅ Profile Name: $PROFILE_NAME"
-          fi
-          
-          # Extract UUID
-          echo "Extracting profile UUID..."
-          PROFILE_UUID=$(security cms -D -i profile.mobileprovision 2>/dev/null | grep -a "UUID" | grep -o "[-A-Z0-9]\{36\}" | head -n 1)
-          
-          if [ -z "$PROFILE_UUID" ]; then
-            echo "⚠️ Could not extract profile UUID"
-            echo "Installing profile without UUID..."
-            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
-          else
-            echo "✅ Profile UUID: $PROFILE_UUID"
-            cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/"$PROFILE_UUID".mobileprovision
-          fi
-          
-          # List installed profiles
-          echo ""
-          echo "Installed provisioning profiles:"
-          ls -la ~/Library/MobileDevice/Provisioning\ Profiles/ || echo "No profiles found"
-          
-          # Export profile name for next step
-          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
-          
-          echo ""
-          echo "✅ Keychain setup complete"
-
-      - name: Build IPA
+      - name: Build and Export Archive
         run: |
-          echo "Building iOS app..."
-          echo "Bundle ID: ${{ inputs.bundle_id }}"
-          echo "Version: ${{ inputs.version_number }}"
-          echo "Build: ${{ inputs.build_number }}"
+          echo "Building archive..."
           
-          if [ ! -f "FoldaaApp.xcodeproj/project.pbxproj" ]; then
-            echo "❌ FoldaaApp.xcodeproj not found"
-            ls -la
-            exit 1
+          PROJECT_DIR=$(find . -maxdepth 3 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
+          cd "$PROJECT_DIR"
+          
+          if [ -f "Info.plist" ]; then
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ github.event.inputs.version_number }}" Info.plist || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.event.inputs.build_number }}" Info.plist || true
           fi
           
-          echo "Creating archive..."
-          xcodebuild clean archive \
-            -project FoldaaApp.xcodeproj \
-            -scheme FoldaaApp \
-            -configuration Release \
-            -archivePath build/FoldaaApp.xcarchive \
-            -allowProvisioningUpdates \
-            PRODUCT_BUNDLE_IDENTIFIER="${{ inputs.bundle_id }}" \
-            MARKETING_VERSION="${{ inputs.version_number }}" \
-            CURRENT_PROJECT_VERSION="${{ inputs.build_number }}"
+          PROJECT=$(ls *.xcodeproj | head -n 1)
+          TARGET=$(xcodebuild -list -project "$PROJECT" | grep -A 1 "Targets:" | tail -n 1 | xargs)
           
-          echo "Creating ExportOptions.plist..."
-          cat > ExportOptions.plist <<'EOF'
+          xcodebuild clean archive \
+            -project "$PROJECT" \
+            -target "$TARGET" \
+            -configuration Release \
+            -archivePath "$PWD/build/App.xcarchive" \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM="${{ github.event.inputs.apple_team_id }}"
+            
+      - name: Export IPA
+        run: |
+          echo "Exporting IPA..."
+          PROJECT_DIR=$(find . -maxdepth 3 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
+          cd "$PROJECT_DIR"
+          
+          cat > ExportOptions.plist <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -398,108 +103,53 @@ jobs:
               <key>method</key>
               <string>app-store</string>
               <key>teamID</key>
-              <string>5ZLA43GJ93J</string>
+              <string>${{ github.event.inputs.apple_team_id }}</string>
               <key>uploadBitcode</key>
               <false/>
               <key>uploadSymbols</key>
               <true/>
           </dict>
           </plist>
-          EOF
-          
-          echo "ExportOptions.plist contents:"
-          cat ExportOptions.plist
-          
-          echo "Exporting IPA..."
+EOF
+
           xcodebuild -exportArchive \
-            -archivePath build/FoldaaApp.xcarchive \
-            -exportPath build \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -exportPath "$PWD/build" \
             -exportOptionsPlist ExportOptions.plist \
             -allowProvisioningUpdates
-          
-          echo "✅ Build complete"
-          ls -lh build/*.ipa
-
-      - name: Upload to Supabase Storage
+            
+      - name: Upload IPA to Supabase
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          IPA_PATH="build/FoldaaApp.ipa"
-          IPA_NAME="${{ inputs.build_id }}.ipa"
+          IPA_PATH=$(find build -name "*.ipa" | head -n 1)
+          IPA_NAME="${{ github.event.inputs.build_id }}.ipa"
           
-          echo "Uploading IPA to Supabase Storage..."
-          echo "IPA path: $IPA_PATH"
-          echo "IPA name: $IPA_NAME"
-          
-          if [ ! -f "$IPA_PATH" ]; then
-            echo "❌ IPA file not found at $IPA_PATH"
-            echo "Available files in build directory:"
-            ls -la build/
-            exit 1
-          fi
-          
-          UPLOAD_RESPONSE=$(curl -X POST \
+          curl -X POST \
             "${SUPABASE_URL}/storage/v1/object/ios-builds/${IPA_NAME}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@${IPA_PATH}" \
-            -w "\n%{http_code}")
-          
-          HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-          echo "Upload HTTP code: $HTTP_CODE"
-          
-          if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
-            echo "❌ Upload failed with code $HTTP_CODE"
-            echo "$UPLOAD_RESPONSE"
-            exit 1
-          fi
-          
+            --data-binary "@$IPA_PATH"
+            
           IPA_URL="${SUPABASE_URL}/storage/v1/object/public/ios-builds/${IPA_NAME}"
-          echo "IPA uploaded to: ${IPA_URL}"
           
-          echo "Updating build record..."
-          UPDATE_RESPONSE=$(curl -X PATCH \
-            "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ inputs.build_id }}" \
+          curl -X PATCH \
+            "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json" \
-            -H "Prefer: return=minimal" \
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-            -d "{\"status\":\"completed\",\"ipa_url\":\"${IPA_URL}\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"}" \
-            -w "\n%{http_code}")
-          
-          UPDATE_HTTP_CODE=$(echo "$UPDATE_RESPONSE" | tail -n1)
-          echo "Update HTTP code: $UPDATE_HTTP_CODE"
-          
-          if [ "$UPDATE_HTTP_CODE" != "200" ] && [ "$UPDATE_HTTP_CODE" != "204" ]; then
-            echo "⚠️ Failed to update build record, but IPA was uploaded"
-            echo "$UPDATE_RESPONSE"
-          fi
-          
-          echo "✅ Build completed successfully"
+            -d "{\"status\":\"completed\",\"ipa_url\":\"$IPA_URL\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"}"
 
-      - name: Handle failure
+      - name: Handle Failure
         if: failure()
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          echo "Build failed, updating status..."
           curl -X PATCH \
-            "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ inputs.build_id }}" \
+            "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/json" \
-            -H "Prefer: return=minimal" \
             -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-            -d "{\"status\":\"failed\",\"error_message\":\"Build failed in GitHub Actions\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)\"}"
-
-      - name: Cleanup
-        if: always()
-        run: |
-          echo "Cleaning up..."
-          
-          security delete-keychain build.keychain || true
-          
-          rm -f cert.p12 profile.mobileprovision || true
-          
-          echo "✅ Cleanup complete"
+            -d "{\"status\":\"failed\",\"error_message\":\"Build failed in GitHub Actions\",\"build_completed_at\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"}"

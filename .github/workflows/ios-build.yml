@@ -41,10 +41,7 @@ jobs:
       - name: Setup Build Environment
         run: |
           echo "Setting up environment..."
-          # Copy template to current directory
           cp -r templates/ios-wrapper/* .
-          
-          # Inject PWA URL
           sed -i '' "s|{{PWA_URL}}|${{ github.event.inputs.pwa_url }}|g" FoldaaApp/ViewController.swift
           
       - name: Install Certificates
@@ -52,35 +49,25 @@ jobs:
           echo "Downloading and installing certificates..."
           curl -L -o cert.p12 "${{ github.event.inputs.certificate_url }}"
           curl -L -o profile.mobileprovision "${{ github.event.inputs.profile_url }}"
-          
-          # Create keychain
           security create-keychain -p "" build.keychain
           security list-keychains -s build.keychain
           security unlock-keychain -p "" build.keychain
-          
-          # Import certificate
           security import cert.p12 -k build.keychain -P "${{ github.event.inputs.certificate_password }}" -A
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-          
-          # Install profile
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/
           
       - name: Build and Export Archive
         run: |
           echo "Building archive..."
-          
           PROJECT_DIR=$(find . -maxdepth 3 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
           cd "$PROJECT_DIR"
-          
           if [ -f "Info.plist" ]; then
             /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ github.event.inputs.version_number }}" Info.plist || true
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.event.inputs.build_number }}" Info.plist || true
           fi
-          
           PROJECT=$(ls *.xcodeproj | head -n 1)
           TARGET=$(xcodebuild -list -project "$PROJECT" | grep -A 1 "Targets:" | tail -n 1 | xargs)
-          
           xcodebuild clean archive \
             -project "$PROJECT" \
             -target "$TARGET" \
@@ -95,22 +82,20 @@ jobs:
           PROJECT_DIR=$(find . -maxdepth 3 -name "*.xcworkspace" -o -name "*.xcodeproj" | head -n 1 | xargs dirname)
           cd "$PROJECT_DIR"
           
-          cat > ExportOptions.plist <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>app-store</string>
-              <key>teamID</key>
-              <string>${{ github.event.inputs.apple_team_id }}</string>
-              <key>uploadBitcode</key>
-              <false/>
-              <key>uploadSymbols</key>
-              <true/>
-          </dict>
-          </plist>
-EOF
+          echo '<?xml version="1.0" encoding="UTF-8"?>' > ExportOptions.plist
+          echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> ExportOptions.plist
+          echo '<plist version="1.0">' >> ExportOptions.plist
+          echo '<dict>' >> ExportOptions.plist
+          echo '    <key>method</key>' >> ExportOptions.plist
+          echo '    <string>app-store</string>' >> ExportOptions.plist
+          echo '    <key>teamID</key>' >> ExportOptions.plist
+          echo "    <string>${{ github.event.inputs.apple_team_id }}</string>" >> ExportOptions.plist
+          echo '    <key>uploadBitcode</key>' >> ExportOptions.plist
+          echo '    <key>false</key>' >> ExportOptions.plist
+          echo '    <key>uploadSymbols</key>' >> ExportOptions.plist
+          echo '    <key>true</key>' >> ExportOptions.plist
+          echo '</dict>' >> ExportOptions.plist
+          echo '</plist>' >> ExportOptions.plist
 
           xcodebuild -exportArchive \
             -archivePath "$PWD/build/App.xcarchive" \
@@ -125,15 +110,12 @@ EOF
         run: |
           IPA_PATH=$(find build -name "*.ipa" | head -n 1)
           IPA_NAME="${{ github.event.inputs.build_id }}.ipa"
-          
           curl -X POST \
             "${SUPABASE_URL}/storage/v1/object/ios-builds/${IPA_NAME}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@$IPA_PATH"
-            
           IPA_URL="${SUPABASE_URL}/storage/v1/object/public/ios-builds/${IPA_NAME}"
-          
           curl -X PATCH \
             "${SUPABASE_URL}/rest/v1/ios_builds?id=eq.${{ github.event.inputs.build_id }}" \
             -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
